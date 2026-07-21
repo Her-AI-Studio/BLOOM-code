@@ -1,4 +1,0 @@
-id: kiosk_modal
-name: Kiosk-Modal
-description: Launches a fullscreen kiosk browser pointed at another brick's web UI once its server is reachable.
-category: ui
