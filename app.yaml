@@ -1,0 +1,11 @@
+name: Bloom
+description: "An offline field journal -- capture a photo, sketch on it, and talk it through with a local LLM to compose a field note."
+ports: []
+bricks:
+- arduino:web_ui: {}
+- arduino:llm:
+    model: llamacpp:gemma-3-1b-it-Q4_0
+- arduino:audio_classification:
+    model: ei-model-1062343-1
+- kiosk_modal: {}
+icon: 🌿

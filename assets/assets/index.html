@@ -1,0 +1,598 @@
+<!--
+SPDX-FileCopyrightText: Copyright (C) Arduino s.r.l. and/or its affiliated companies
+
+SPDX-License-Identifier: MPL-2.0
+-->
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Field Journal</title>
+    <link rel="stylesheet" type="text/css" href="style.css" />
+    <style>
+      /* Laid out for a small (5") HDMI/LCD touchscreen: fixed-height
+         shell, one tab visible at a time, tab bar docked at the bottom
+         within thumb reach.
+
+         Palette below is meant to evoke a hand-drawn naturalist's field
+         journal: aged paper, sepia ink, muted botanical greens instead
+         of app-UI blue/green. Only generic font families (serif) are
+         relied on for headings -- no web fonts are loaded, since this
+         has to render offline on the board with whatever's already on
+         its Linux image. */
+      :root {
+        --paper: #f3ead9;
+        --paper-dark: #ece0c8;
+        --ink: #2e2417;
+        --ink-soft: #5c4a34;
+        --line: rgba(58, 45, 28, 0.32);
+        --line-soft: rgba(58, 45, 28, 0.18);
+        --accent-green: #55684a;
+        --accent-green-dark: #3c4a35;
+        --accent-rust: #7a3b2e;
+        --accent-rust-dark: #532820;
+        --accent-slate: #46626c;
+        --accent-slate-dark: #30454d;
+      }
+      html, body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+      body {
+        padding: 0;
+        display: block;
+        /* Faint "foxing" spots + a warm gradient stand in for a paper
+           texture image -- no binary asset needed, so it stays
+           offline-safe. */
+        background:
+          radial-gradient(circle at 18% 24%, rgba(90, 66, 40, 0.06) 0%, transparent 5%),
+          radial-gradient(circle at 76% 62%, rgba(90, 66, 40, 0.05) 0%, transparent 4%),
+          radial-gradient(circle at 42% 85%, rgba(90, 66, 40, 0.06) 0%, transparent 4%),
+          radial-gradient(circle at 88% 15%, rgba(90, 66, 40, 0.05) 0%, transparent 4%),
+          radial-gradient(circle at 8% 70%, rgba(90, 66, 40, 0.04) 0%, transparent 5%),
+          linear-gradient(160deg, var(--paper) 0%, var(--paper-dark) 100%);
+        color: var(--ink);
+      }
+      .app-shell {
+        max-width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 8px 10px 0 10px;
+        font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+        display: flex;
+        flex-direction: column;
+        box-sizing: border-box;
+      }
+      .header {
+        margin-bottom: 6px;
+        flex: 0 0 auto;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 6px;
+      }
+      .header h1 {
+        font-family: Georgia, "Times New Roman", serif;
+        font-style: italic;
+        font-weight: 400;
+        font-size: 1.25rem;
+        letter-spacing: 0.01em;
+        margin: 0;
+        color: var(--ink);
+      }
+      .header .arduino-logo {
+        height: 20px;
+        opacity: 0.55;
+        filter: sepia(60%) saturate(60%);
+      }
+
+      /* --- Tabs --------------------------------------------------- */
+      .tab-panels {
+        flex: 1 1 auto;
+        min-height: 0;
+        position: relative;
+      }
+      .tab-panel {
+        display: none;
+        height: 100%;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 8px;
+        box-sizing: border-box;
+      }
+      .tab-panel.active {
+        display: flex;
+        flex-direction: column;
+      }
+      .tab-bar {
+        flex: 0 0 auto;
+        display: flex;
+        border-top: 1px solid var(--line);
+        background: var(--paper-dark);
+        margin: 0 -10px;
+      }
+      .tab-btn {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        padding: 8px 4px 6px 4px;
+        border: none;
+        background: none;
+        font-size: 1.25rem;
+        line-height: 1;
+        cursor: pointer;
+        color: var(--ink-soft);
+        opacity: 0.6;
+      }
+      .tab-btn span {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 0.62rem;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+      }
+      .tab-btn.active {
+        color: var(--accent-green-dark);
+        opacity: 1;
+        border-top: 2px solid var(--accent-green);
+        margin-top: -1px;
+      }
+
+      /* --- Tab 1: Capture ------------------------------------------ */
+      #cameraPreview {
+        width: 100%;
+        flex: 1 1 auto;
+        min-height: 0;
+        object-fit: cover;
+        background: #1c1810;
+        border-radius: 3px;
+        border: 1px solid var(--line);
+        display: block;
+        margin-bottom: 8px;
+      }
+      .capture-btn {
+        display: block;
+        width: 100%;
+        flex: 0 0 auto;
+        margin-bottom: 8px;
+        padding: 12px;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 1rem;
+        letter-spacing: 0.02em;
+        border: 1px solid var(--accent-green-dark);
+        border-radius: 4px;
+        cursor: pointer;
+        background: var(--accent-green);
+        color: var(--paper);
+      }
+      .entry-status {
+        display: flex;
+        gap: 10px;
+        margin: 0 0 8px 0;
+        font-size: 0.82rem;
+        flex: 0 0 auto;
+      }
+      .entry-status span {
+        padding: 3px 10px;
+        border-radius: 3px;
+        background: transparent;
+        border: 1px solid var(--line-soft);
+        color: var(--ink-soft);
+        opacity: 0.75;
+      }
+      .entry-status span.status-saved {
+        background: rgba(85, 104, 74, 0.14);
+        border-color: var(--accent-green);
+        color: var(--accent-green-dark);
+        opacity: 1;
+        font-weight: 600;
+      }
+      .capture-status {
+        flex: 0 0 auto;
+        min-height: 1.2em;
+        opacity: 0.8;
+        font-size: 0.85rem;
+        font-style: italic;
+        color: var(--ink-soft);
+      }
+
+      /* --- Tab 2: Photo + Sketch ------------------------------------ */
+      .entry-panels {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        flex: 1 1 auto;
+        min-height: 0;
+      }
+      .panel-label {
+        font-family: Georgia, "Times New Roman", serif;
+        font-style: italic;
+        font-size: 0.92rem;
+        letter-spacing: 0.02em;
+        color: var(--ink-soft);
+        border-bottom: 1px solid var(--line-soft);
+        padding-bottom: 3px;
+        margin-bottom: 6px;
+      }
+      .photo-panel {
+        flex: 0 0 auto;
+      }
+      #capturedPhoto {
+        width: 100%;
+        max-height: 110px;
+        object-fit: contain;
+        border-radius: 3px;
+        border: 1px solid var(--line);
+        background: var(--paper-dark);
+        display: none;
+      }
+      .sketch-panel {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      #sketchCanvas {
+        flex: 1 1 auto;
+        min-height: 0;
+        width: 100%;
+        background: #fdfaf2;
+        border-radius: 3px;
+        border: 1px solid var(--line);
+        display: block;
+        touch-action: none; /* stops the page from scrolling/zooming while drawing */
+      }
+      .sketch-controls {
+        display: flex;
+        gap: 8px;
+        margin-top: 6px;
+        flex: 0 0 auto;
+      }
+      .sketch-controls button {
+        flex: 1;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        cursor: pointer;
+        background: var(--paper-dark);
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+      }
+
+      /* --- Tab 3: Chat ----------------------------------------------- */
+      #tab-chat {
+        flex-direction: column;
+      }
+      .bird-panel {
+        flex: 0 0 auto;
+        margin-bottom: 10px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+      .bird-panel .capture-btn {
+        margin-bottom: 6px;
+      }
+      .chat-panel {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 auto;
+        min-height: 0;
+      }
+      #chatLog {
+        flex: 1 1 auto;
+        min-height: 80px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 8px;
+        border-radius: 4px;
+        background: rgba(58, 45, 28, 0.045);
+        border: 1px solid var(--line-soft);
+      }
+      .chat-bubble {
+        padding: 8px 10px;
+        border-radius: 4px;
+        max-width: 85%;
+        border: 1px solid var(--line-soft);
+      }
+      .chat-bubble p {
+        margin: 0;
+        white-space: pre-wrap;
+        font-size: 0.9rem;
+        color: var(--ink);
+      }
+      .chat-you {
+        align-self: flex-end;
+        background: var(--paper-dark);
+      }
+      .chat-ai {
+        align-self: flex-start;
+        background: #fdfaf2;
+      }
+      .add-to-note-btn {
+        display: block;
+        margin-top: 6px;
+        padding: 5px 8px;
+        font-size: 0.78rem;
+        border: 1px solid var(--line);
+        border-radius: 3px;
+        cursor: pointer;
+        background: var(--paper-dark);
+        color: var(--ink-soft);
+      }
+      .chat-input-row {
+        display: flex;
+        gap: 6px;
+        margin-top: 8px;
+        flex: 0 0 auto;
+      }
+      .chat-input-row input {
+        flex: 1;
+        padding: 10px;
+        border-radius: 4px;
+        border: 1px solid var(--line);
+        font-size: 0.95rem;
+        background: #fdfaf2;
+        color: var(--ink);
+      }
+      .chat-input-row button {
+        padding: 10px 14px;
+        border: 1px solid var(--accent-green-dark);
+        border-radius: 4px;
+        cursor: pointer;
+        background: var(--accent-green);
+        color: var(--paper);
+        font-family: Georgia, "Times New Roman", serif;
+      }
+      .field-note {
+        margin-top: 8px;
+        padding: 10px;
+        border-radius: 4px;
+        background: rgba(58, 45, 28, 0.045);
+        border: 1px solid var(--line-soft);
+        flex: 0 0 auto;
+      }
+      .field-note p {
+        margin: 0 0 6px 0;
+        white-space: pre-wrap;
+        font-size: 0.88rem;
+        color: var(--ink);
+      }
+      .scan-content-time {
+        font-size: 0.75rem;
+        font-style: italic;
+        opacity: 0.65;
+        color: var(--ink-soft);
+      }
+
+      /* --- Tab 4: Saved Notes ----------------------------------------- */
+      #tab-notes {
+        flex-direction: column;
+      }
+      .entries-list {
+        flex: 1 1 auto;
+        overflow-y: auto;
+      }
+      .entry-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 8px 2px;
+        border-bottom: 1px solid var(--line-soft);
+        cursor: pointer;
+      }
+      .entry-row img,
+      .entry-thumb-placeholder {
+        width: 56px;
+        height: 42px;
+        object-fit: cover;
+        border-radius: 3px;
+        border: 1px solid var(--line-soft);
+        background: var(--paper-dark);
+        flex: 0 0 auto;
+      }
+      .entry-meta {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      .entry-meta .entry-time {
+        font-size: 0.72rem;
+        font-style: italic;
+        opacity: 0.65;
+        color: var(--ink-soft);
+      }
+      .entry-meta .entry-snippet {
+        font-size: 0.85rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--ink);
+      }
+      .notes-empty {
+        opacity: 0.7;
+        font-style: italic;
+        font-size: 0.9rem;
+        padding: 12px 2px;
+        color: var(--ink-soft);
+      }
+      .notes-detail {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+      }
+      .notes-back-btn {
+        align-self: flex-start;
+        margin-bottom: 8px;
+        padding: 8px 14px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: var(--paper-dark);
+        color: var(--ink);
+        cursor: pointer;
+        font-size: 0.85rem;
+        font-family: Georgia, "Times New Roman", serif;
+      }
+      .detail-images {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 8px;
+        flex: 0 0 auto;
+      }
+      .detail-images img {
+        flex: 1;
+        width: 50%;
+        max-height: 150px;
+        object-fit: contain;
+        background: var(--paper-dark);
+        border-radius: 3px;
+        border: 1px solid var(--line);
+      }
+      #detailNoteTextarea {
+        width: 100%;
+        box-sizing: border-box;
+        border-radius: 4px;
+        border: 1px solid var(--line);
+        padding: 8px;
+        font-size: 0.88rem;
+        font-family: inherit;
+        resize: vertical;
+        background: #fdfaf2;
+        color: var(--ink);
+      }
+      .detail-actions {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-top: 6px;
+        flex: 0 0 auto;
+      }
+      .detail-actions button {
+        flex: 1 1 auto;
+        padding: 9px 6px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.78rem;
+        font-family: Georgia, "Times New Roman", serif;
+        background: var(--paper-dark);
+        color: var(--ink);
+      }
+      #detailDeleteButton {
+        background: var(--accent-rust);
+        color: var(--paper);
+        border-color: var(--accent-rust-dark);
+      }
+      #detailSyncButton {
+        background: var(--accent-slate);
+        color: var(--paper);
+        border-color: var(--accent-slate-dark);
+      }
+
+      .error-message {
+        margin: 8px 0;
+        padding: 8px 10px;
+        border-radius: 4px;
+        background: rgba(122, 59, 46, 0.12);
+        border: 1px solid var(--accent-rust);
+        color: var(--accent-rust-dark);
+        font-size: 0.85rem;
+        font-style: italic;
+        flex: 0 0 auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <div class="header">
+        <h1 class="arduino-text">Field Journal</h1>
+        <img class="arduino-logo" src="./img/logo.svg" alt="Arduino Logo" />
+      </div>
+
+      <div class="tab-panels">
+        <!-- Tab 1: Capture -->
+        <section id="tab-capture" class="tab-panel active">
+          <img id="cameraPreview" alt="Live camera preview" />
+          <button id="captureButton" class="capture-btn">📸 Capture (c)</button>
+          <div class="entry-status">
+            <span id="status-photo" data-label="Photo">○ Photo</span>
+            <span id="status-sketch" data-label="Sketch">○ Sketch</span>
+            <span id="status-note" data-label="Note">○ Note</span>
+          </div>
+          <div id="captureStatus" class="capture-status"></div>
+        </section>
+
+        <!-- Tab 2: Photo + Sketch -->
+        <section id="tab-sketch" class="tab-panel">
+          <div class="entry-panels">
+            <div class="entry-panel photo-panel">
+              <div class="panel-label">Photo</div>
+              <img id="capturedPhoto" alt="Captured photo" />
+            </div>
+            <div class="entry-panel sketch-panel">
+              <div class="panel-label">Sketch</div>
+              <canvas id="sketchCanvas"></canvas>
+              <div class="sketch-controls">
+                <button id="sketchClearButton">Clear</button>
+                <button id="sketchSaveButton">Save Sketch</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab 3: Chat -->
+        <section id="tab-chat" class="tab-panel">
+          <div class="bird-panel">
+            <div class="panel-label">Identify Birdsong</div>
+            <button id="birdListenButton" class="capture-btn">🎤 Listen (5s)</button>
+            <div id="birdResult"></div>
+          </div>
+
+          <div class="panel-label">Ask about this observation</div>
+          <div class="chat-panel">
+            <div id="chatLog"></div>
+            <div class="chat-input-row">
+              <input id="chatInput" type="text" placeholder="Describe what you see, or ask a question..." />
+              <button id="chatSendButton">Send</button>
+            </div>
+          </div>
+          <div id="fieldNoteResult"></div>
+        </section>
+
+        <!-- Tab 4: Saved Notes -->
+        <section id="tab-notes" class="tab-panel">
+          <div id="notesListView">
+            <div class="panel-label">Saved Field Notes</div>
+            <div id="entriesList" class="entries-list"></div>
+          </div>
+          <div id="notesDetailView" class="notes-detail" style="display: none">
+            <button id="notesBackButton" class="notes-back-btn">← Back to list</button>
+            <div id="entryDetailContent"></div>
+          </div>
+        </section>
+      </div>
+
+      <nav class="tab-bar">
+        <button class="tab-btn active" data-tab="capture">📸<span>Capture</span></button>
+        <button class="tab-btn" data-tab="sketch">🎨<span>Sketch</span></button>
+        <button class="tab-btn" data-tab="chat">💬<span>Chat</span></button>
+        <button class="tab-btn" data-tab="notes">📓<span>Notes</span></button>
+      </nav>
+
+      <div id="error-container" class="error-message" style="display: none"></div>
+    </div>
+
+    <script src="libs/socket.io.min.js"></script>
+    <script src="libs/arduino.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
